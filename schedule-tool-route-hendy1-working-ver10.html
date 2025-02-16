@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Route Scheduler</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f4f4f4; }
+    input, button { margin: 5px; padding: 8px; }
+    .now-button { font-size: 8px; background-color: red; color: white; border: none; padding: 2px 4px; cursor: pointer; }
+    .update-notice { margin-top: 20px; font-weight: bold; color: green; }
+    .displayTime { margin-left: 5px; font-size: 0.9em; color: #555; }
+  </style>
+</head>
+<body>
+  <h2>Route Scheduler</h2>
+  <label for="startTime">Start Time (Departure from First Stop):</label>
+  <input type="time" id="startTime" value="09:00">
+  <button onclick="calculateSchedule()">Calculate Schedule</button>
+  
+  <h3>Stops</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Stop</th>
+        <th>Drive Time (min)</th>
+        <th>Distance (miles)</th>
+        <th>Arrival Time</th>
+        <th>Departure Time</th>
+        <th>Time at Stop (min)</th>
+      </tr>
+    </thead>
+    <tbody id="stopsTable">
+    </tbody>
+  </table>
+  <p id="updateNotice" class="update-notice"></p>
+  <button onclick="saveAsCSV()">Save as CSV</button>
+  
+  <script>
+    let stops = [
+      { name: "40 Spruce Pine Dr, Candler, NC", driveTime: 0, distance: 0 },
+      { name: "636 Spartanburg Hwy, Hendersonville, NC", driveTime: 40, distance: 27.5 },
+      { name: "707 Spartanburg Hwy, Hendersonville, NC", driveTime: 2, distance: 0.3 },
+      { name: "635 Greenville Hwy, Hendersonville, NC", driveTime: 2, distance: 0.5 },
+      { name: "220 N Highland Lake Rd, Flat Rock, NC", driveTime: 6, distance: 2.4 },
+      { name: "276 NC-9, Lake Lure, NC", driveTime: 36, distance: 28.3 },
+      { name: "40 Spruce Pine Dr, Candler, NC", driveTime: 66, distance: 55.4 }
+    ];
+
+    // Format a Date as a "HH:MM" string (24-hour)
+    function formatTime(date) {
+      let hours = date.getHours().toString().padStart(2, '0');
+      let minutes = date.getMinutes().toString().padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+
+    // Convert a "HH:MM" string in 24-hour format to a 12-hour format with AM/PM using toLocaleTimeString
+    function convertTo12Hour(timeStr) {
+      let [hour, minute] = timeStr.split(':');
+      let date = new Date();
+      date.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
+      // Options ensure that the time is displayed in a 12-hour format with AM/PM
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
+    // Return current time in 24-hour format for setting input values
+    function getCurrentTime() {
+      let now = new Date();
+      return formatTime(now);
+    }
+
+    // Calculate schedule using preset drive times (for initial setup)
+    function calculateSchedule() {
+      let startTime = document.getElementById('startTime').value;
+      let [hours, minutes] = startTime.split(":").map(Number);
+      let currentTime = new Date();
+      currentTime.setHours(hours, minutes, 0, 0);
+
+      stops[0].departureTime = new Date(currentTime);
+      stops[0].arrivalTime = null;
+      
+      for (let i = 1; i < stops.length; i++) {
+        // Calculate arrival time based on previous stop's departure and the preset driveTime
+        stops[i].arrivalTime = new Date(stops[i - 1].departureTime);
+        stops[i].arrivalTime.setMinutes(stops[i].arrivalTime.getMinutes() + stops[i].driveTime);
+        if (i < stops.length - 1) {
+          // Set departure time by adding a fixed 60 minutes at the stop
+          stops[i].departureTime = new Date(stops[i].arrivalTime);
+          stops[i].departureTime.setMinutes(stops[i].departureTime.getMinutes() + 60);
+        }
+      }
+      updateTable();
+    }
+
+    // Update table and display converted times in 12-hour format next to inputs
+    function updateTable() {
+      let tableBody = document.getElementById('stopsTable');
+      tableBody.innerHTML = '';
+      stops.forEach((stop, index) => {
+        let computedDriveTime = '0';
+        if (index > 0 && stop.arrivalTime && stops[index - 1].departureTime) {
+          computedDriveTime = Math.round((stop.arrivalTime - stops[index - 1].departureTime) / 60000);
+        }
+        let arrivalTime = stop.arrivalTime ? formatTime(stop.arrivalTime) : '';
+        let departureTime = stop.departureTime ? formatTime(stop.departureTime) : '';
+        let timeAtStop = (stop.arrivalTime && stop.departureTime) ? Math.round((stop.departureTime - stop.arrivalTime) / 60000) : '';
+        
+        let arrivalCell = index === 0 ? '' : 
+          `<input type='time' value='${arrivalTime}' onchange='adjustTime(${index}, "arrival", this.value)'>
+           <span class="displayTime">${convertTo12Hour(arrivalTime)}</span>
+           <button class='now-button' onclick='setNow(${index}, "arrival")'>NOW</button>`;
+           
+        let departureCell = index === stops.length - 1 ? '' : 
+          `<input type='time' value='${departureTime}' onchange='adjustTime(${index}, "departure", this.value)'>
+           <span class="displayTime">${convertTo12Hour(departureTime)}</span>
+           <button class='now-button' onclick='setNow(${index}, "departure")'>NOW</button>`;
+
+        let row = `<tr>
+          <td>${stop.name}</td>
+          <td>${computedDriveTime}</td>
+          <td>${stop.distance}</td>
+          <td>${arrivalCell}</td>
+          <td>${departureCell}</td>
+          <td>${timeAtStop}</td>
+        </tr>`;
+        tableBody.innerHTML += row;
+      });
+    }
+
+    // Adjust times and recalculate subsequent stops
+    function adjustTime(index, type, newTime) {
+      let [hours, minutes] = newTime.split(":").map(Number);
+      if (isNaN(hours) || isNaN(minutes)) return;
+      let currentTime = new Date();
+      currentTime.setHours(hours, minutes, 0, 0);
+      
+      if (type === 'arrival') {
+        stops[index].arrivalTime = new Date(currentTime);
+        if (index < stops.length - 1) {
+          stops[index].departureTime = new Date(stops[index].arrivalTime);
+          stops[index].departureTime.setMinutes(stops[index].departureTime.getMinutes() + 60);
+        }
+      } else {
+        stops[index].departureTime = new Date(currentTime);
+      }
+      
+      for (let i = index + 1; i < stops.length; i++) {
+        stops[i].arrivalTime = new Date(stops[i - 1].departureTime);
+        stops[i].arrivalTime.setMinutes(stops[i].arrivalTime.getMinutes() + (stops[i].driveTime || 0));
+        if (i < stops.length - 1) {
+          stops[i].departureTime = new Date(stops[i].arrivalTime);
+          stops[i].departureTime.setMinutes(stops[i].departureTime.getMinutes() + 60);
+        }
+      }
+      updateTable();
+      document.getElementById('updateNotice').innerText = 
+        `Schedule updated at ${convertTo12Hour(formatTime(new Date()))}`;
+    }
+
+    function setNow(index, type) {
+      let currentTime = getCurrentTime();
+      adjustTime(index, type, currentTime);
+    }
+
+    // Save CSV with auto-naming based on current date and folder selection via the File System Access API
+    async function saveAsCSV() {
+      let csvContent = "Stop,Drive Time (min),Distance (miles),Arrival Time,Departure Time,Time at Stop (min)\n";
+      stops.forEach((stop, index) => {
+        let computedDriveTime = (index > 0 && stop.arrivalTime && stops[index - 1].departureTime) ? 
+          Math.round((stop.arrivalTime - stops[index - 1].departureTime) / 60000) : 0;
+        let arrivalTime = stop.arrivalTime ? formatTime(stop.arrivalTime) : '';
+        let departureTime = stop.departureTime ? formatTime(stop.departureTime) : '';
+        let timeAtStop = (stop.arrivalTime && stop.departureTime) ? Math.round((stop.departureTime - stop.arrivalTime) / 60000) : '';
+        csvContent += `${stop.name},${computedDriveTime},${stop.distance},${arrivalTime},${departureTime},${timeAtStop}\n`;
+      });
+      
+      let dateStr = new Date().toISOString().slice(0, 10);
+      let fileName = `schedule_data_${dateStr}.csv`;
+      
+      if (window.showSaveFilePicker) {
+        try {
+          const options = {
+            suggestedName: fileName,
+            types: [{
+              description: "CSV Files",
+              accept: { "text/csv": [".csv"] }
+            }]
+          };
+          const fileHandle = await window.showSaveFilePicker(options);
+          const writable = await fileHandle.createWritable();
+          await writable.write(csvContent);
+          await writable.close();
+        } catch (err) {
+          console.error("File save cancelled or failed: ", err);
+        }
+      } else {
+        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", fileName);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    }
+  </script>
+</body>
+</html>
